@@ -68,13 +68,19 @@ def load_monthly_weather():
     return monthly
 
 
-def to_anomaly(series_or_df, month_index):
+def to_anomaly(series):
     """
-    계절성 제거: 같은 달의 5년 평균과의 차이
-    → 이걸 안 하면 '여름엔 덥고 여름엔 토마토가 싸다' 같은 계절 패턴이
-      날씨 효과처럼 보이는 가짜 상관이 생김
+    [PR3-1] 추세 + 계절성 제거
+    1) 추세 제거: 5년 동안 꾸준히 오른 부분(물가 상승, 온난화)을 직선으로 빼냄
+       → 안 빼면 '최근일수록 덥고, 최근일수록 비싸다'가 날씨 효과처럼 보임
+    2) 계절성 제거: 같은 달의 평균과의 차이
+       → 안 빼면 '여름엔 덥고 여름엔 토마토가 싸다' 같은 계절 패턴이 섞임
     """
-    return series_or_df - series_or_df.groupby(month_index).transform("mean")
+    t = np.arange(len(series))
+    mask = series.notna().values
+    slope, intercept = np.polyfit(t[mask], series.values[mask], 1)
+    detrended = series - (slope * t + intercept)
+    return detrended - detrended.groupby(series.index.month).transform("mean")
 
 
 def run(target_item="토마토"):
@@ -82,15 +88,14 @@ def run(target_item="토마토"):
     price = load_monthly_price(target_item)
     weather = load_monthly_weather()
 
-    # 가격: 같은 달 평균 대비 몇 % 높았나
-    price_month_mean = price.groupby(price.index.month).transform("mean")
-    price_anom = (price / price_month_mean - 1) * 100
+    # 가격: 로그를 취해 '몇 % 차이'로 해석되도록 한 뒤 추세·계절성 제거
+    price_anom = to_anomaly(np.log(price)) * 100
 
     rows = []
     for (station_id, station_name), w in weather.groupby(["station_id", "station_name"]):
         w = w.set_index("date").reindex(price.index)
         for col, (label, _) in WEATHER_VARS.items():
-            w_anom = to_anomaly(w[col], w.index.month)
+            w_anom = to_anomaly(w[col])
             for lag in range(MAX_LAG + 1):
                 # lag개월 전 날씨 vs 이번 달 가격
                 pair = pd.concat([w_anom.shift(lag), price_anom], axis=1).dropna()
