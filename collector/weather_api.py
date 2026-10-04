@@ -130,6 +130,67 @@ def get_weather_forecast(api_key, nx="60", ny="127"):
         print(f"예보 수집 중 오류 발생: {e}")
         return None
 
+def get_region_weather(api_key, start_date, end_date, station_id):
+    """
+    [PR3] 산지 관측소별 ASOS 일자료 수집
+    - 기존 get_weather_data는 서울(108) 한 곳만 수집하고 지점 정보를 버렸음
+    - 여기서는 지점번호·지점명과 일조시간(sumSsHr)을 함께 저장
+      (토마토는 시설재배가 많아 기온보다 일조량 영향이 클 수 있음)
+    """
+    url = 'http://apis.data.go.kr/1360000/AsosDalyInfoService/getWthrDataList'
+    params = {
+        'serviceKey': api_key,
+        'pageNo': '1',
+        'numOfRows': '999',
+        'dataType': 'JSON',
+        'dataCd': 'ASOS',
+        'dateCd': 'DAY',
+        'startDt': start_date,
+        'endDt': end_date,
+        'stnIds': station_id
+    }
+
+    try:
+        response = requests.get(url, params=params)
+        data = response.json()
+
+        if data['response']['header']['resultCode'] != '00':
+            print(f"API 응답 에러: {data['response']['header']['resultMsg']}")
+            return None
+
+        items = data['response']['body']['items']['item']
+        df = pd.DataFrame(items)
+
+        rename_map = {
+            'tm': 'date',
+            'stnId': 'station_id',
+            'stnNm': 'station_name',
+            'avgTa': 'avg_ta',
+            'maxTa': 'max_ta',
+            'minTa': 'min_ta',
+            'sumRn': 'sum_rn',
+            'sumSsHr': 'sum_ss_hr',
+        }
+        for col in rename_map:
+            if col not in df.columns:
+                df[col] = ''
+        df = df[list(rename_map.keys())].rename(columns=rename_map)
+
+        # 강수량·일조시간 공백은 0으로, 기온 공백은 결측(NaN → None)으로 유지
+        for col in ['sum_rn', 'sum_ss_hr']:
+            df[col] = pd.to_numeric(df[col].replace('', '0'), errors='coerce').fillna(0.0)
+        for col in ['avg_ta', 'max_ta', 'min_ta']:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+        df['station_id'] = df['station_id'].astype(str)
+
+        # JSON 전송 시 NaN은 허용되지 않으므로 None으로 변환
+        df = df.astype(object).where(pd.notna(df), None)
+        return df
+
+    except Exception as e:
+        print(f"[{station_id}] 데이터 수집 중 오류: {e}")
+        return None
+
 # API 키를 외부에서 쉽게 가져올 수 있도록 변수 노출
 current_dir = os.path.dirname(os.path.abspath(__file__))
 secret_path = os.path.join(current_dir, '..', 'secret.json')

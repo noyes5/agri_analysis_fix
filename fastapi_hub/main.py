@@ -123,3 +123,52 @@ def get_all_weather(db: Session = Depends(get_db)):
     # DB에서 모든 과거 날씨 데이터를 가져와서 반환
     weather = db.query(models.WeatherHistory).all()
     return weather
+
+# ---------------------------------------------------------------
+# [PR3] 산지 관측소 날씨
+# 기존 weather_history는 '날짜'만으로 중복을 판단해서
+# 여러 지점을 넣으면 서로 덮어씀 → 지점번호+날짜 기준 별도 테이블 사용
+# ---------------------------------------------------------------
+@app.post("/api/v1/ingest/weather-region")
+def ingest_weather_region(rows: List[schemas.WeatherRegionCreate], db: Session = Depends(get_db)):
+    try:
+        if not rows:
+            return {"status": "success", "inserted": 0, "updated": 0}
+
+        # 한 번 요청에 들어온 지점들의 기존 데이터를 미리 불러와 매 행마다 조회하지 않도록 함
+        station_ids = {r.station_id for r in rows}
+        dates = {r.date for r in rows}
+        existing = {
+            (w.station_id, w.date): w
+            for w in db.query(models.WeatherRegion).filter(
+                models.WeatherRegion.station_id.in_(station_ids),
+                models.WeatherRegion.date.in_(dates)
+            )
+        }
+
+        inserted, updated = 0, 0
+        for r in rows:
+            key = (r.station_id, r.date)
+            if key in existing:
+                for field, value in r.dict().items():
+                    setattr(existing[key], field, value)
+                updated += 1
+            else:
+                db.add(models.WeatherRegion(**r.dict()))
+                inserted += 1
+
+        db.commit()
+        return {"status": "success", "inserted": inserted, "updated": updated}
+
+    except Exception as e:
+        db.rollback()
+        print(f"❌ 산지 날씨 저장 오류: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/weather-region")
+def get_weather_region(station_id: str = None, db: Session = Depends(get_db)):
+    query = db.query(models.WeatherRegion)
+    if station_id:
+        query = query.filter(models.WeatherRegion.station_id == station_id)
+    return query.order_by(models.WeatherRegion.station_id, models.WeatherRegion.date).all()

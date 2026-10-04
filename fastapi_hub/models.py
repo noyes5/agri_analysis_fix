@@ -29,3 +29,16 @@ class WeatherForecast(Base):
     category = Column(String)               # 항목 (기온, 강수 등)
     fcst_value = Column(Float)              # 예보 값
     reg_date = Column(String)               # 예보 생성일 (조회 시점)
+
+class WeatherRegion(Base):
+    """[PR3] 산지 관측소별 일별 날씨 (지점번호 + 날짜가 고유키)"""
+    __tablename__ = "weather_region"
+    id = Column(Integer, primary_key=True, index=True)
+    date = Column(String, index=True)
+    station_id = Column(String, index=True)
+    station_name = Column(String)
+    avg_ta = Column(Float)
+    max_ta = Column(Float)
+    min_ta = Column(Float)
+    sum_rn = Column(Float)
+    sum_ss_hr = Column(Float)

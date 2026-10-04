@@ -29,3 +29,14 @@ class WeatherForecastCreate(BaseModel):
 
     class Config:
         from_attributes = True
+
+class WeatherRegionCreate(BaseModel):
+    """[PR3] 산지 관측소 날씨. 기온은 관측 결측이 있을 수 있어 Optional"""
+    date: str
+    station_id: str
+    station_name: Optional[str] = ""
+    avg_ta: Optional[float] = None
+    max_ta: Optional[float] = None
+    min_ta: Optional[float] = None
+    sum_rn: float = 0.0
+    sum_ss_hr: float = 0.0
